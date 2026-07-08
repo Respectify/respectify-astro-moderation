@@ -2,9 +2,11 @@
 
 Thin Astro integration for [Respectify](https://respectify.ai) comment moderation.
 
+Respectify does more than just comment moderation — it provides a complete solution for managing and enhancing user-generated content. It monitors for tone, logical fallacies, and spam and educates commenters on how to improve their comments.
+
 Add the integration, set two env vars, then call `moderateComment()` from your own actions or API routes. **No comment UI, no database, no Astro Actions wiring.**
 
-Want hosted Astro comments (UI + DB)? Use [`@respectify/astro`](https://www.npmjs.com/package/@respectify/astro) instead.  
+Want hosted Astro comments (UI + DB)? Use [`@respectify/astro`](https://www.npmjs.com/package/@respectify/astro) instead.
 API-only outside Astro? Use [`@respectify/client`](https://www.npmjs.com/package/@respectify/client).
 
 ## Install
