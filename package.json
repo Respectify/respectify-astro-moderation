@@ -1,0 +1,65 @@
+{
+  "name": "@respectify/astro-moderation",
+  "version": "0.1.0",
+  "description": "Thin Astro integration for Respectify comment moderation — API key in, approve/block + feedback out.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Respectify <dave@respectify.ai>",
+  "homepage": "https://www.npmjs.com/package/@respectify/astro-moderation",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Respectify/respectify-astro-moderation.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Respectify/respectify-astro-moderation/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "astro",
+    "astro-integration",
+    "withastro",
+    "respectify",
+    "moderation",
+    "comments",
+    "toxicity",
+    "spam",
+    "perspective-api"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./moderate": {
+      "types": "./dist/moderate.d.ts",
+      "import": "./dist/moderate.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@respectify/client": "^0.5.0",
+    "astro": "^5.0.0 || ^6.0.0"
+  },
+  "devDependencies": {
+    "@respectify/client": "^0.5.0",
+    "@types/node": "^26.1.1",
+    "astro": "^5.16.5",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
