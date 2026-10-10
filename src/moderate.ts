@@ -3,7 +3,10 @@ import {
   AuthenticationError,
   PaymentRequiredError,
   RespectifyError,
+  validateModerationTolerances,
   type MegaCallResult,
+  type MegacallOptions,
+  type ModerationTolerances,
   type PerspectiveAnalyzeCommentResponse,
 } from "@respectify/client";
 import type {
@@ -13,11 +16,30 @@ import type {
   RespectifyAstroModerationOptions,
 } from "./types.js";
 
+/** Toxicity threshold used by perspective mode when none is configured. */
+const DEFAULT_PERSPECTIVE_TOXICITY_THRESHOLD = 0.7;
+
 const articleIdCache = new Map<string, string>();
 let client: RespectifyClient | null = null;
 let integrationDefaults: RespectifyAstroModerationOptions = {};
 
+/**
+ * Store the defaults used by moderateComment().
+ *
+ * @throws Error when `tolerances` names an unknown category or level, or relaxes a
+ *   floored category (threat, identity_attack, sexual_content, harassment).
+ */
 export function setModerationDefaults(options: RespectifyAstroModerationOptions): void {
+  if (options.tolerances !== undefined) {
+    try {
+      validateModerationTolerances(options.tolerances);
+    } catch (error) {
+      if (error instanceof RespectifyError) {
+        throw new Error(`Invalid Respectify moderation tolerances: ${error.message}`);
+      }
+      throw error;
+    }
+  }
   integrationDefaults = { ...options };
 }
 
@@ -61,12 +83,29 @@ async function resolveArticleId(input: ModerateCommentInput): Promise<string | u
   return init.article_id;
 }
 
-function decideFromToxicity(
-  toxicityScore: number | undefined,
-  threshold: number,
-  extras?: { isSpam?: boolean; explanation?: string },
+/** The signals a moderation decision is made from. */
+interface ModerationSignals {
+  isSpam?: boolean;
+  /** 0 = clean, 1 = highly toxic */
+  toxicityScore?: number;
+  /** Block when toxicityScore >= this. Undefined means toxicity alone never blocks. */
+  toxicityThreshold?: number;
+  /** From the comment score: the comment has a problem the site's tolerances do not accept */
+  exceedsTolerance?: boolean;
+  /** Coaching feedback shown when the comment is blocked for its content */
+  explanation?: string;
+}
+
+/**
+ * Decide whether a comment is approved. Blocked when it is spam, when it exceeds the
+ * site's tolerances, or when its toxicity reaches a configured threshold.
+ */
+function decide(
+  signals: ModerationSignals,
 ): Pick<ModerateCommentResult, "approved" | "feedback" | "toxicityScore" | "isSpam"> {
-  if (extras?.isSpam) {
+  const { isSpam, toxicityScore, toxicityThreshold, exceedsTolerance, explanation } = signals;
+
+  if (isSpam) {
     return {
       approved: false,
       feedback: "This comment appears to be spam.",
@@ -75,10 +114,15 @@ function decideFromToxicity(
     };
   }
 
-  if (toxicityScore !== undefined && toxicityScore >= threshold) {
+  const isOverToxicityThreshold =
+    toxicityThreshold !== undefined &&
+    toxicityScore !== undefined &&
+    toxicityScore >= toxicityThreshold;
+
+  if (exceedsTolerance === true || isOverToxicityThreshold) {
     return {
       approved: false,
-      feedback: extras?.explanation || "This comment looks too disrespectful to publish as-is.",
+      feedback: explanation || "This comment looks too disrespectful to publish as-is.",
       toxicityScore,
       isSpam: false,
     };
@@ -103,6 +147,15 @@ function perspectiveScores(
   return out;
 }
 
+/** Per-call tolerances merged over the integration's: a category named per call wins. */
+function mergeTolerances(
+  defaults: ModerationTolerances | undefined,
+  overrides: ModerationTolerances | undefined,
+): ModerationTolerances | undefined {
+  if (!defaults && !overrides) return undefined;
+  return { ...defaults, ...overrides };
+}
+
 /**
  * Moderate a single comment with Respectify.
  * Call from an Astro Action, API route, or server endpoint.
@@ -111,8 +164,9 @@ export async function moderateComment(
   input: ModerateCommentInput,
 ): Promise<ModerateCommentResult> {
   const mode: ModerateMode = input.mode ?? integrationDefaults.mode ?? "full";
-  const toxicityThreshold =
-    input.toxicityThreshold ?? integrationDefaults.toxicityThreshold ?? 0.7;
+  // Undefined when neither the call nor the integration configured one
+  const configuredToxicityThreshold: number | undefined =
+    input.toxicityThreshold ?? integrationDefaults.toxicityThreshold;
 
   try {
     const respectify = getClient();
@@ -129,7 +183,11 @@ export async function moderateComment(
       const scores = perspectiveScores(response);
       const toxicityScore = scores?.TOXICITY;
       return {
-        ...decideFromToxicity(toxicityScore, toxicityThreshold),
+        ...decide({
+          toxicityScore,
+          toxicityThreshold:
+            configuredToxicityThreshold ?? DEFAULT_PERSPECTIVE_TOXICITY_THRESHOLD,
+        }),
         perspectiveScores: scores,
         raw: response,
       };
@@ -151,12 +209,7 @@ export async function moderateComment(
     }
 
     // full
-    const megacallOptions: {
-      comment: string;
-      articleId?: string;
-      includeSpam: boolean;
-      includeCommentScore?: boolean;
-    } = {
+    const megacallOptions: MegacallOptions = {
       comment: input.comment,
       includeSpam: true,
     };
@@ -164,17 +217,26 @@ export async function moderateComment(
     if (articleId) {
       megacallOptions.articleId = articleId;
       megacallOptions.includeCommentScore = true;
+
+      const tolerances = mergeTolerances(integrationDefaults.tolerances, input.tolerances);
+      if (tolerances) {
+        megacallOptions.tolerances = tolerances;
+      }
     }
 
     const result: MegaCallResult = await respectify.megacall(megacallOptions);
-    const toxicityScore = result.comment_score?.toxicity_score;
-    const explanation = result.comment_score?.toxicity_explanation;
+    const commentScore = result.comment_score;
 
     return {
-      ...decideFromToxicity(toxicityScore, toxicityThreshold, {
+      ...decide({
         isSpam: result.spam_check?.is_spam,
-        explanation,
+        toxicityScore: commentScore?.toxicity_score,
+        toxicityThreshold: configuredToxicityThreshold,
+        exceedsTolerance: commentScore?.exceeds_tolerance,
+        explanation: commentScore?.toxicity_explanation,
       }),
+      exceedsTolerance: commentScore?.exceeds_tolerance,
+      tolerances: commentScore?.tolerances,
       articleId,
       raw: result,
     };

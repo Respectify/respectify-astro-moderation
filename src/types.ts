@@ -1,3 +1,8 @@
+import type {
+  ModerationTolerances,
+  ResolvedModerationTolerances,
+} from "@respectify/client";
+
 export type ModerateMode = "full" | "spam-only" | "perspective";
 
 export interface RespectifyAstroModerationOptions {
@@ -12,10 +17,21 @@ export interface RespectifyAstroModerationOptions {
 
   /**
    * Toxicity block threshold for auto-decision (0–1). Higher = more toxic.
-   * Used when mode is "full" or "perspective".
-   * @default 0.7
+   *
+   * - perspective mode: the comment is blocked when TOXICITY >= threshold. Defaults to 0.7.
+   * - full mode: the comment score's `exceeds_tolerance` decides. A threshold set here
+   *   (or per call) also applies, as an extra block on `toxicity_score >= threshold`;
+   *   when none is set, only `exceeds_tolerance` decides.
    */
   toxicityThreshold?: number;
+
+  /**
+   * Moderation tolerances for the comment score (full mode). The categories named
+   * override the API key's saved tolerances; the rest keep their saved level.
+   * Floored categories (threat, identity_attack, sexual_content, harassment) can
+   * never be "relaxed": the integration rejects that at setup.
+   */
+  tolerances?: ModerationTolerances;
 
   /**
    * Optional default page/topic URL used to build article context when
@@ -37,6 +53,11 @@ export interface ModerateCommentInput {
   mode?: ModerateMode;
   /** Override toxicity threshold for this call */
   toxicityThreshold?: number;
+  /**
+   * Override tolerances for this call (full mode). Merged over the integration's
+   * `tolerances`: a category named here wins, the others keep the integration's level.
+   */
+  tolerances?: ModerationTolerances;
 }
 
 export interface ModerateCommentResult {
@@ -48,6 +69,13 @@ export interface ModerateCommentResult {
   toxicityScore?: number;
   /** True when spam was detected */
   isSpam?: boolean;
+  /**
+   * True when the comment has a problem the site's tolerances do not accept
+   * (full mode with a comment score only).
+   */
+  exceedsTolerance?: boolean;
+  /** The tolerances the comment score was judged under (full mode with a comment score only) */
+  tolerances?: ResolvedModerationTolerances;
   /** Article context used (useful to cache for later comments on the same page) */
   articleId?: string;
   /** Perspective attribute scores when mode is "perspective" */

@@ -26,7 +26,8 @@ export default defineConfig({
   integrations: [
     respectifyModeration({
       mode: "full", // or "spam-only" | "perspective"
-      toxicityThreshold: 0.7,
+      // Optional: override the API key's saved tolerances for the categories named
+      tolerances: { insult: "relaxed", threat: "zero_tolerance" },
     }),
   ],
 });
@@ -62,6 +63,26 @@ if (!result.approved) {
 | `full` (default) | Spam check + comment score when topic context is available |
 | `spam-only` | Spam detection only |
 | `perspective` | Perspective-compatible toxicity / insult / profanity scores |
+
+### How the decision is made
+
+| Mode | Blocked when |
+| --- | --- |
+| `full` | Spam, **or** the comment score's `exceeds_tolerance` is true, **or** `toxicity_score >= toxicityThreshold` *if you set a threshold* (none by default) |
+| `spam-only` | Spam |
+| `perspective` | `TOXICITY >= toxicityThreshold` (default `0.7`) |
+
+In `full` mode, `exceeds_tolerance` is the main signal: Respectify sets it when the comment has a problem your site's tolerances do not accept. `toxicity_score` is not adjusted for tolerances, so only set `toxicityThreshold` in `full` mode if you want an extra, tolerance-independent cut-off. Without topic context (`articleId`, `topicUrl`, `topicText` or `defaultTopicUrl`) there is no comment score, so only spam is checked.
+
+`result.exceedsTolerance` and `result.tolerances` (the full set the comment was judged under) are returned in `full` mode when a comment score was run.
+
+### Moderation tolerances
+
+Each API key has saved tolerances, one per category, set in the Respectify dashboard. The `tolerances` option overrides them for the categories it names; the rest keep their saved level. A per-call `tolerances` passed to `moderateComment()` is merged over the integration's.
+
+- Categories: `threat`, `identity_attack`, `sexual_content`, `harassment`, `insult`, `profanity`, `dismissive_tone`, `logical_fallacy`, `low_effort`
+- Levels: `relaxed`, `standard` (default), `strict`, `zero_tolerance`
+- `threat`, `identity_attack`, `sexual_content` and `harassment` are floored: they can be made stricter but never `relaxed`. The integration throws at setup if you try, and `moderateComment()` rejects it per call.
 
 ### Tip: cache `articleId`
 
