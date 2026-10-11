@@ -26,8 +26,8 @@ export default defineConfig({
   integrations: [
     respectifyModeration({
       mode: "full", // or "spam-only" | "perspective"
-      // Optional: override the API key's saved tolerances for the categories named
-      tolerances: { insult: "relaxed", threat: "zero_tolerance" },
+      // Optional: comment-health levels; items not named are "standard"
+      tolerances: { insult: "relaxed", profanity: "off", threat: "zero_tolerance", quality: "strict" },
     }),
   ],
 });
@@ -72,17 +72,18 @@ if (!result.approved) {
 | `spam-only` | Spam |
 | `perspective` | `TOXICITY >= toxicityThreshold` (default `0.7`) |
 
-In `full` mode, `exceeds_tolerance` is the main signal: Respectify sets it when the comment has a problem your site's tolerances do not accept. `toxicity_score` is not adjusted for tolerances, so only set `toxicityThreshold` in `full` mode if you want an extra, tolerance-independent cut-off. Without topic context (`articleId`, `topicUrl`, `topicText` or `defaultTopicUrl`) there is no comment score, so only spam is checked.
+In `full` mode, `exceeds_tolerance` is the main signal: Respectify sets it when any comment-health item scores below what your tolerances accept, or the comment is severely toxic. `toxicity_score` is not adjusted for tolerances, so only set `toxicityThreshold` in `full` mode if you want an extra, tolerance-independent cut-off. Without topic context (`articleId`, `topicUrl`, `topicText` or `defaultTopicUrl`) there is no comment score, so only spam is checked.
 
-`result.exceedsTolerance` and `result.tolerances` (the full set the comment was judged under) are returned in `full` mode when a comment score was run.
+`result.exceedsTolerance`, `result.tolerances` (the full set the comment was judged under), `result.healthScore` (1.0-5.0) and `result.healthItems` (per item: `score`, `minimum`, `is_acceptable`) are returned in `full` mode when a comment score was run. `healthScore` and `healthItems` are absent from older APIs, and `healthScore` is absent when every item is off.
 
-### Moderation tolerances
+### Comment health and tolerances
 
-Each API key has saved tolerances, one per category, set in the Respectify dashboard. The `tolerances` option overrides them for the categories it names; the rest keep their saved level. A per-call `tolerances` passed to `moderateComment()` is merged over the integration's.
+Comment health has ten items: the nine problem categories and `quality`. The `tolerances` option sets a level per item; items not named are `standard`. Nothing is stored on the API key. A per-call `tolerances` passed to `moderateComment()` is merged over the integration's.
 
-- Categories: `threat`, `identity_attack`, `sexual_content`, `harassment`, `insult`, `profanity`, `dismissive_tone`, `logical_fallacy`, `low_effort`
-- Levels: `relaxed`, `standard` (default), `strict`, `zero_tolerance`
-- `threat`, `identity_attack`, `sexual_content` and `harassment` are floored: they can be made stricter but never `relaxed`. The integration throws at setup if you try, and `moderateComment()` rejects it per call.
+- Items: `threat`, `identity_attack`, `sexual_content`, `harassment`, `insult`, `profanity`, `dismissive_tone`, `logical_fallacy`, `low_effort`, `quality`
+- Levels: `off`, `relaxed`, `standard` (default), `strict`, `zero_tolerance`
+- A problem category fails on its worst finding: `relaxed` fails only severe findings, `standard` fails clear and severe ones, `strict` and `zero_tolerance` fail any. `quality` sets the lowest 1-5 quality score accepted: `relaxed` 2, `standard` 3, `strict` 4, `zero_tolerance` 5. `off` leaves the item out of comment health.
+- `threat`, `identity_attack`, `sexual_content` and `harassment` are floored: they can be made stricter but never `relaxed` or `off`. The integration throws at setup if you try, and `moderateComment()` rejects it per call.
 
 ### Tip: cache `articleId`
 

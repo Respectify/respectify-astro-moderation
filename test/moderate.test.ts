@@ -30,6 +30,7 @@ const STANDARD_TOLERANCES: ResolvedModerationTolerances = {
   dismissive_tone: "standard",
   logical_fallacy: "standard",
   low_effort: "standard",
+  quality: "standard",
 };
 
 function commentScore(overrides: Partial<CommentScore>): CommentScore {
@@ -197,9 +198,54 @@ describe("moderateComment full mode", () => {
         articleId: ARTICLE_ID,
         tolerances: untypedTolerances('{"threat": "relaxed"}'),
       }),
-      /stricter but not relaxed: threat/,
+      /stricter but not relaxed or turned off: threat/,
     );
     assert.equal(fetchMock.mock.callCount(), 0);
+  });
+
+  it("rejects a per-call turned-off floored category without calling the API", async () => {
+    const fetchMock = respondWith(megacallResult(commentScore({})));
+    await assert.rejects(
+      moderateComment({
+        comment: "fine",
+        articleId: ARTICLE_ID,
+        tolerances: untypedTolerances('{"sexual_content": "off"}'),
+      }),
+      /stricter but not relaxed or turned off: sexual_content/,
+    );
+    assert.equal(fetchMock.mock.callCount(), 0);
+  });
+
+  it("sends quality and off levels", async () => {
+    setModerationDefaults({ tolerances: { quality: "strict" } });
+    const fetchMock = respondWith(megacallResult(commentScore({})));
+    await moderateComment({
+      comment: "fine",
+      articleId: ARTICLE_ID,
+      tolerances: { profanity: "off" },
+    });
+    assert.deepEqual(sentBody(fetchMock).tolerances, { quality: "strict", profanity: "off" });
+  });
+
+  it("returns the per-item health results and health score", async () => {
+    const healthItems = {
+      insult: { score: 2, minimum: 4, is_acceptable: false },
+      quality: { score: 4, minimum: 3, is_acceptable: true },
+    } as const;
+    respondWith(
+      megacallResult(commentScore({ exceeds_tolerance: true, health_score: 2.828, health_items: healthItems })),
+    );
+    const result = await moderateComment({ comment: "you fool", articleId: ARTICLE_ID });
+    assert.equal(result.approved, false);
+    assert.deepEqual(result.healthItems, healthItems);
+    assert.equal(result.healthScore, 2.828);
+  });
+
+  it("leaves the health results undefined when an older API omits them", async () => {
+    respondWith(megacallResult(commentScore({})));
+    const result = await moderateComment({ comment: "fine", articleId: ARTICLE_ID });
+    assert.equal(result.healthItems, undefined);
+    assert.equal(result.healthScore, undefined);
   });
 });
 
@@ -235,14 +281,27 @@ describe("tolerance configuration", () => {
   it("rejects a relaxed floored category at setup", () => {
     assert.throws(
       () => respectifyModeration({ tolerances: untypedTolerances('{"harassment": "relaxed"}') }),
-      /Invalid Respectify moderation tolerances: .*stricter but not relaxed: harassment/,
+      /Invalid Respectify moderation tolerances: .*stricter but not relaxed or turned off: harassment/,
+    );
+  });
+
+  it("rejects a turned-off floored category at setup", () => {
+    assert.throws(
+      () => respectifyModeration({ tolerances: untypedTolerances('{"identity_attack": "off"}') }),
+      /Invalid Respectify moderation tolerances: .*stricter but not relaxed or turned off: identity_attack/,
+    );
+  });
+
+  it("accepts off for tunable categories and any level for quality", () => {
+    assert.doesNotThrow(() =>
+      respectifyModeration({ tolerances: { profanity: "off", low_effort: "off", quality: "zero_tolerance" } }),
     );
   });
 
   it("rejects an unknown category at setup", () => {
     assert.throws(
       () => setModerationDefaults({ tolerances: untypedTolerances('{"insults": "relaxed"}') }),
-      /Invalid Respectify moderation tolerances: Unknown moderation category/,
+      /Invalid Respectify moderation tolerances: Unknown comment-health item/,
     );
   });
 });

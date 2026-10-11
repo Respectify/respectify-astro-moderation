@@ -8,6 +8,9 @@ export type {
   RespectifyAstroModerationOptions,
 } from "./types.js";
 export type {
+  HealthItem,
+  HealthItemScore,
+  HealthItemScores,
   ModerationCategory,
   ModerationTolerances,
   ResolvedModerationTolerances,

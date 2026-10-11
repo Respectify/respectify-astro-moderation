@@ -26,8 +26,8 @@ let integrationDefaults: RespectifyAstroModerationOptions = {};
 /**
  * Store the defaults used by moderateComment().
  *
- * @throws Error when `tolerances` names an unknown category or level, or relaxes a
- *   floored category (threat, identity_attack, sexual_content, harassment).
+ * @throws Error when `tolerances` names an unknown item or level, or relaxes or turns
+ *   off a floored category (threat, identity_attack, sexual_content, harassment).
  */
 export function setModerationDefaults(options: RespectifyAstroModerationOptions): void {
   if (options.tolerances !== undefined) {
@@ -147,7 +147,7 @@ function perspectiveScores(
   return out;
 }
 
-/** Per-call tolerances merged over the integration's: a category named per call wins. */
+/** Per-call tolerances merged over the integration's: an item named per call wins. */
 function mergeTolerances(
   defaults: ModerationTolerances | undefined,
   overrides: ModerationTolerances | undefined,
@@ -237,6 +237,8 @@ export async function moderateComment(
       }),
       exceedsTolerance: commentScore?.exceeds_tolerance,
       tolerances: commentScore?.tolerances,
+      healthScore: commentScore?.health_score,
+      healthItems: commentScore?.health_items,
       articleId,
       raw: result,
     };

@@ -1,4 +1,5 @@
 import type {
+  HealthItemScores,
   ModerationTolerances,
   ResolvedModerationTolerances,
 } from "@respectify/client";
@@ -26,10 +27,10 @@ export interface RespectifyAstroModerationOptions {
   toxicityThreshold?: number;
 
   /**
-   * Moderation tolerances for the comment score (full mode). The categories named
-   * override the API key's saved tolerances; the rest keep their saved level.
-   * Floored categories (threat, identity_attack, sexual_content, harassment) can
-   * never be "relaxed": the integration rejects that at setup.
+   * Comment-health tolerances for the comment score (full mode): a level per item, the
+   * nine problem categories and "quality". Items not named are "standard". Floored
+   * categories (threat, identity_attack, sexual_content, harassment) can never be
+   * "relaxed" or "off": the integration rejects that at setup.
    */
   tolerances?: ModerationTolerances;
 
@@ -55,7 +56,7 @@ export interface ModerateCommentInput {
   toxicityThreshold?: number;
   /**
    * Override tolerances for this call (full mode). Merged over the integration's
-   * `tolerances`: a category named here wins, the others keep the integration's level.
+   * `tolerances`: an item named here wins, the others keep the integration's level.
    */
   tolerances?: ModerationTolerances;
 }
@@ -76,6 +77,10 @@ export interface ModerateCommentResult {
   exceedsTolerance?: boolean;
   /** The tolerances the comment score was judged under (full mode with a comment score only) */
   tolerances?: ResolvedModerationTolerances;
+  /** Comment health, 1.0-5.0 (full mode, when the API returned it; absent when every item is off) */
+  healthScore?: number;
+  /** Per-item comment-health results: score, minimum, is_acceptable (full mode, when the API returned them) */
+  healthItems?: HealthItemScores;
   /** Article context used (useful to cache for later comments on the same page) */
   articleId?: string;
   /** Perspective attribute scores when mode is "perspective" */
