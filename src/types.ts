@@ -30,7 +30,7 @@ export interface RespectifyAstroModerationOptions {
    * Comment-health tolerances for the comment score (full mode): a level per item, the
    * nine problem categories and "quality". Items not named are "standard". Floored
    * categories (threat, identity_attack, sexual_content, harassment) can never be
-   * "relaxed" or "off": the integration rejects that at setup.
+   * "permissive", "relaxed" or "off": the integration rejects that at setup.
    */
   tolerances?: ModerationTolerances;
 

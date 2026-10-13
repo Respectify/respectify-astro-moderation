@@ -55,7 +55,6 @@ function megacallResult(score: CommentScore | null, isSpam = false): MegaCallRes
     relevance_check: null,
     dogwhistle_check: null,
     perspective: null,
-    llm_detection: null,
   };
 }
 
@@ -216,6 +215,29 @@ describe("moderateComment full mode", () => {
     assert.equal(fetchMock.mock.callCount(), 0);
   });
 
+  it("rejects a per-call permissive floored category without calling the API", async () => {
+    const fetchMock = respondWith(megacallResult(commentScore({})));
+    await assert.rejects(
+      moderateComment({
+        comment: "fine",
+        articleId: ARTICLE_ID,
+        tolerances: untypedTolerances('{"threat": "permissive"}'),
+      }),
+      /stricter but not relaxed or turned off: threat/,
+    );
+    assert.equal(fetchMock.mock.callCount(), 0);
+  });
+
+  it("sends permissive levels", async () => {
+    const fetchMock = respondWith(megacallResult(commentScore({})));
+    await moderateComment({
+      comment: "fine",
+      articleId: ARTICLE_ID,
+      tolerances: { insult: "permissive", quality: "permissive" },
+    });
+    assert.deepEqual(sentBody(fetchMock).tolerances, { insult: "permissive", quality: "permissive" });
+  });
+
   it("sends quality and off levels", async () => {
     setModerationDefaults({ tolerances: { quality: "strict" } });
     const fetchMock = respondWith(megacallResult(commentScore({})));
@@ -282,6 +304,19 @@ describe("tolerance configuration", () => {
     assert.throws(
       () => respectifyModeration({ tolerances: untypedTolerances('{"harassment": "relaxed"}') }),
       /Invalid Respectify moderation tolerances: .*stricter but not relaxed or turned off: harassment/,
+    );
+  });
+
+  it("accepts permissive for tunable categories and quality", () => {
+    assert.doesNotThrow(() =>
+      respectifyModeration({ tolerances: { insult: "permissive", dismissive_tone: "permissive", quality: "permissive" } }),
+    );
+  });
+
+  it("rejects a permissive floored category at setup", () => {
+    assert.throws(
+      () => respectifyModeration({ tolerances: untypedTolerances('{"sexual_content": "permissive"}') }),
+      /Invalid Respectify moderation tolerances: .*stricter but not relaxed or turned off: sexual_content/,
     );
   });
 

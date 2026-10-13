@@ -81,9 +81,9 @@ In `full` mode, `exceeds_tolerance` is the main signal: Respectify sets it when 
 Comment health has ten items: the nine problem categories and `quality`. The `tolerances` option sets a level per item; items not named are `standard`. Nothing is stored on the API key. A per-call `tolerances` passed to `moderateComment()` is merged over the integration's.
 
 - Items: `threat`, `identity_attack`, `sexual_content`, `harassment`, `insult`, `profanity`, `dismissive_tone`, `logical_fallacy`, `low_effort`, `quality`
-- Levels: `off`, `relaxed`, `standard` (default), `strict`, `zero_tolerance`
-- A problem category fails on its worst finding: `relaxed` fails only severe findings, `standard` fails clear and severe ones, `strict` and `zero_tolerance` fail any. `quality` sets the lowest 1-5 quality score accepted: `relaxed` 2, `standard` 3, `strict` 4, `zero_tolerance` 5. `off` leaves the item out of comment health.
-- `threat`, `identity_attack`, `sexual_content` and `harassment` are floored: they can be made stricter but never `relaxed` or `off`. The integration throws at setup if you try, and `moderateComment()` rejects it per call.
+- Levels, loosest to strictest: `off`, `permissive`, `relaxed`, `standard` (default), `strict`, `zero_tolerance`
+- A problem category fails on its worst finding (severity 1 minor, 2 clear, 3 severe, 4 extreme): `permissive` filters only the very worst, failing extreme findings alone; `relaxed` fails severe and extreme findings; `standard` fails clear, severe and extreme ones; `strict` and `zero_tolerance` fail any. `quality` sets the lowest 1-5 quality score accepted: `permissive` and `relaxed` 2, `standard` 3, `strict` 4, `zero_tolerance` 5. `off` leaves the item out of comment health.
+- `threat`, `identity_attack`, `sexual_content` and `harassment` are floored: they can be made stricter but never `permissive`, `relaxed` or `off`. The integration throws at setup if you try, and `moderateComment()` rejects it per call.
 
 ### Tip: cache `articleId`
 
