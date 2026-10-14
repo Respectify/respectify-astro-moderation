@@ -1,6 +1,6 @@
 {
   "name": "@respectify/astro-moderation",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Thin Astro integration for Respectify comment moderation — API key in, approve/block + feedback out.",
   "type": "module",
   "license": "MIT",
