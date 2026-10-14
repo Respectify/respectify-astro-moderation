@@ -7,6 +7,7 @@ import type {
   ModerationTolerances,
   PerspectiveAnalyzeCommentResponse,
   ResolvedModerationTolerances,
+  SpamDetectionResult,
 } from "@respectify/client";
 
 import respectifyModeration from "../src/integration.js";
@@ -48,15 +49,30 @@ function commentScore(overrides: Partial<CommentScore>): CommentScore {
   };
 }
 
-function megacallResult(score: CommentScore | null, isSpam = false): MegaCallResult {
+function megacallResult(
+  score: CommentScore | null,
+  isSpam = false,
+  spamCheck?: SpamDetectionResult,
+): MegaCallResult {
   return {
     comment_score: score,
-    spam_check: { reasoning: "", is_spam: isSpam, confidence: 0.9 },
+    spam_check: spamCheck ?? { reasoning: "", is_spam: isSpam, confidence: 0.9 },
     relevance_check: null,
     dogwhistle_check: null,
     perspective: null,
   };
 }
+
+const LINK_SUGGESTION = "This looks like spam. How about removing the link?";
+
+/** A suspected-spam verdict: not spam, but sent back to the commenter with the suggestion. */
+const SUSPECTED_SPAM: SpamDetectionResult = {
+  reasoning: "Looks promotional",
+  is_spam: false,
+  confidence: 0.6,
+  suspected_spam: true,
+  suggestion: LINK_SUGGESTION,
+};
 
 function perspectiveResponse(toxicity: number): PerspectiveAnalyzeCommentResponse {
   return {
@@ -148,6 +164,63 @@ describe("moderateComment full mode", () => {
     const result = await moderateComment({ comment: "buy now", articleId: ARTICLE_ID });
     assert.equal(result.approved, false);
     assert.equal(result.isSpam, true);
+  });
+
+  it("marks spam as spam, not suspected", async () => {
+    respondWith(megacallResult(commentScore({}), true));
+    const result = await moderateComment({ comment: "buy now", articleId: ARTICLE_ID });
+    assert.equal(result.isSpam, true);
+    assert.equal(result.suspectedSpam, false);
+    assert.equal(result.feedback, "This comment appears to be spam.");
+  });
+
+  it("sends suspected spam back with the suggestion instead of treating it as spam", async () => {
+    respondWith(megacallResult(commentScore({}), false, SUSPECTED_SPAM));
+    const result = await moderateComment({ comment: "see example.com", articleId: ARTICLE_ID });
+    assert.equal(result.approved, false, "suspected spam should be held for revision");
+    assert.equal(result.isSpam, false, "suspected spam is not spam");
+    assert.equal(result.suspectedSpam, true);
+    assert.equal(result.spamSuggestion, LINK_SUGGESTION);
+    assert.equal(result.feedback, LINK_SUGGESTION);
+  });
+
+  it("combines the suspected-spam suggestion with comment-health feedback", async () => {
+    respondWith(
+      megacallResult(
+        commentScore({ exceeds_tolerance: true, toxicity_explanation: "Calling someone an idiot is an insult." }),
+        false,
+        SUSPECTED_SPAM,
+      ),
+    );
+    const result = await moderateComment({ comment: "idiot, see example.com", articleId: ARTICLE_ID });
+    assert.equal(result.approved, false);
+    assert.equal(result.isSpam, false);
+    assert.equal(result.suspectedSpam, true);
+    assert.equal(result.feedback, `${LINK_SUGGESTION} Calling someone an idiot is an insult.`);
+  });
+
+  it("publishes a comment that is neither spam nor suspected", async () => {
+    respondWith(
+      megacallResult(commentScore({}), false, {
+        reasoning: "",
+        is_spam: false,
+        confidence: 0.9,
+        suspected_spam: false,
+        suggestion: "",
+      }),
+    );
+    const result = await moderateComment({ comment: "good point", articleId: ARTICLE_ID });
+    assert.equal(result.approved, true);
+    assert.equal(result.isSpam, false);
+    assert.equal(result.suspectedSpam, false);
+    assert.equal(result.spamSuggestion, undefined);
+  });
+
+  it("treats an older API without suspected_spam as not suspected", async () => {
+    respondWith(megacallResult(commentScore({})));
+    const result = await moderateComment({ comment: "good point", articleId: ARTICLE_ID });
+    assert.equal(result.approved, true);
+    assert.equal(result.suspectedSpam, false);
   });
 
   it("returns the tolerances the comment was judged under", async () => {
@@ -271,6 +344,34 @@ describe("moderateComment full mode", () => {
   });
 });
 
+describe("moderateComment spam-only mode", () => {
+  it("blocks spam", async () => {
+    respondWith({ reasoning: "Spam", is_spam: true, confidence: 0.95 });
+    const result = await moderateComment({ comment: "buy now", mode: "spam-only" });
+    assert.equal(result.approved, false);
+    assert.equal(result.isSpam, true);
+    assert.equal(result.suspectedSpam, false);
+  });
+
+  it("sends suspected spam back with the suggestion", async () => {
+    respondWith(SUSPECTED_SPAM);
+    const result = await moderateComment({ comment: "see example.com", mode: "spam-only" });
+    assert.equal(result.approved, false);
+    assert.equal(result.isSpam, false);
+    assert.equal(result.suspectedSpam, true);
+    assert.equal(result.spamSuggestion, LINK_SUGGESTION);
+    assert.equal(result.feedback, LINK_SUGGESTION);
+  });
+
+  it("publishes a comment that is neither", async () => {
+    respondWith({ reasoning: "", is_spam: false, confidence: 0.9 });
+    const result = await moderateComment({ comment: "good point", mode: "spam-only" });
+    assert.equal(result.approved, true);
+    assert.equal(result.isSpam, false);
+    assert.equal(result.suspectedSpam, false);
+  });
+});
+
 describe("moderateComment perspective mode", () => {
   it("blocks at the default toxicity threshold of 0.7", async () => {
     respondWith(perspectiveResponse(0.8));
@@ -283,6 +384,13 @@ describe("moderateComment perspective mode", () => {
     respondWith(perspectiveResponse(0.5));
     const result = await moderateComment({ comment: "x", mode: "perspective" });
     assert.equal(result.approved, true);
+  });
+
+  it("runs no spam check, so suspectedSpam is undefined", async () => {
+    respondWith(perspectiveResponse(0.1));
+    const result = await moderateComment({ comment: "x", mode: "perspective" });
+    assert.equal(result.isSpam, false);
+    assert.equal(result.suspectedSpam, undefined);
   });
 
   it("uses a configured toxicity threshold", async () => {

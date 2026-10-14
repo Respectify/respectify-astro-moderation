@@ -8,6 +8,7 @@ import {
   type MegacallOptions,
   type ModerationTolerances,
   type PerspectiveAnalyzeCommentResponse,
+  type SpamDetectionResult,
 } from "@respectify/client";
 import type {
   ModerateCommentInput,
@@ -83,9 +84,14 @@ async function resolveArticleId(input: ModerateCommentInput): Promise<string | u
   return init.article_id;
 }
 
+/** Fallback shown for suspected spam when an API sends no suggestion. */
+const DEFAULT_SUSPECTED_SPAM_SUGGESTION =
+  "This looks like spam. Please revise it and say what you think about the discussion.";
+
 /** The signals a moderation decision is made from. */
 interface ModerationSignals {
-  isSpam?: boolean;
+  /** The spam verdict, when a spam check was run */
+  spamCheck?: SpamDetectionResult | null;
   /** 0 = clean, 1 = highly toxic */
   toxicityScore?: number;
   /** Block when toxicityScore >= this. Undefined means toxicity alone never blocks. */
@@ -96,14 +102,29 @@ interface ModerationSignals {
   explanation?: string;
 }
 
+type ModerationDecision = Pick<
+  ModerateCommentResult,
+  "approved" | "feedback" | "toxicityScore" | "isSpam" | "suspectedSpam" | "spamSuggestion"
+>;
+
 /**
- * Decide whether a comment is approved. Blocked when it is spam, when it exceeds the
- * site's tolerances, or when its toxicity reaches a configured threshold.
+ * Decide whether a comment is approved, and if not, whether it is rejected as spam or
+ * sent back to its writer for revision.
+ *
+ * - Spam (`is_spam`): rejected; the comment should be deleted.
+ * - Suspected spam (`suspected_spam`): not approved, but not spam: sent back with the
+ *   server's suggestion, combined with any comment-health feedback.
+ * - Exceeding the site's tolerances, or a configured toxicity threshold: sent back with
+ *   the coaching feedback.
+ * - Otherwise approved.
  */
-function decide(
-  signals: ModerationSignals,
-): Pick<ModerateCommentResult, "approved" | "feedback" | "toxicityScore" | "isSpam"> {
-  const { isSpam, toxicityScore, toxicityThreshold, exceedsTolerance, explanation } = signals;
+function decide(signals: ModerationSignals): ModerationDecision {
+  const { spamCheck, toxicityScore, toxicityThreshold, exceedsTolerance, explanation } = signals;
+  // No spam check (perspective mode) leaves suspectedSpam undefined
+  const hasSpamCheck = spamCheck !== undefined;
+  const isSpam = spamCheck?.is_spam === true;
+  // An older API omits suspected_spam: treat that as not suspected
+  const isSuspectedSpam = !isSpam && spamCheck?.suspected_spam === true;
 
   if (isSpam) {
     return {
@@ -111,6 +132,7 @@ function decide(
       feedback: "This comment appears to be spam.",
       toxicityScore,
       isSpam: true,
+      suspectedSpam: false,
     };
   }
 
@@ -118,13 +140,30 @@ function decide(
     toxicityThreshold !== undefined &&
     toxicityScore !== undefined &&
     toxicityScore >= toxicityThreshold;
+  const isHealthProblem = exceedsTolerance === true || isOverToxicityThreshold;
 
-  if (exceedsTolerance === true || isOverToxicityThreshold) {
+  const spamFlags: Pick<ModerationDecision, "isSpam" | "suspectedSpam"> = hasSpamCheck
+    ? { isSpam: false, suspectedSpam: isSuspectedSpam }
+    : { isSpam: false };
+
+  if (isSuspectedSpam) {
+    const spamSuggestion = spamCheck?.suggestion || DEFAULT_SUSPECTED_SPAM_SUGGESTION;
+    const feedback = isHealthProblem && explanation ? `${spamSuggestion} ${explanation}` : spamSuggestion;
+    return {
+      approved: false,
+      feedback,
+      toxicityScore,
+      ...spamFlags,
+      spamSuggestion,
+    };
+  }
+
+  if (isHealthProblem) {
     return {
       approved: false,
       feedback: explanation || "This comment looks too disrespectful to publish as-is.",
       toxicityScore,
-      isSpam: false,
+      ...spamFlags,
     };
   }
 
@@ -132,7 +171,7 @@ function decide(
     approved: true,
     feedback: "Looks good.",
     toxicityScore,
-    isSpam: false,
+    ...spamFlags,
   };
 }
 
@@ -197,12 +236,11 @@ export async function moderateComment(
 
     if (mode === "spam-only") {
       const spam = await respectify.checkSpam(input.comment, articleId);
+      const decision = decide({ spamCheck: spam });
       return {
-        approved: !spam.is_spam,
-        feedback: spam.is_spam
-          ? spam.reasoning || "This comment appears to be spam."
-          : "Looks good.",
-        isSpam: spam.is_spam,
+        ...decision,
+        // spam-only mode has always shown the server's reasoning for spam
+        feedback: spam.is_spam ? spam.reasoning || decision.feedback : decision.feedback,
         articleId,
         raw: spam,
       };
@@ -229,7 +267,7 @@ export async function moderateComment(
 
     return {
       ...decide({
-        isSpam: result.spam_check?.is_spam,
+        spamCheck: result.spam_check,
         toxicityScore: commentScore?.toxicity_score,
         toxicityThreshold: configuredToxicityThreshold,
         exceedsTolerance: commentScore?.exceeds_tolerance,

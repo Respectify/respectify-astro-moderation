@@ -68,8 +68,19 @@ export interface ModerateCommentResult {
   feedback: string;
   /** Toxicity-ish score when available (0 = clean, 1 = highly toxic) */
   toxicityScore?: number;
-  /** True when spam was detected */
+  /** True when spam was detected: reject or delete the comment */
   isSpam?: boolean;
+  /**
+   * True when the comment looks like spam but is not certain. It is not approved, but it
+   * is not spam either: send it back to the commenter with `feedback` (which carries
+   * `spamSuggestion`) so a real person can fix it. Undefined in perspective mode.
+   */
+  suspectedSpam?: boolean;
+  /**
+   * The server's suggestion for a suspected-spam comment, such as to remove a link.
+   * Set only when `suspectedSpam` is true.
+   */
+  spamSuggestion?: string;
   /**
    * True when the comment has a problem the site's tolerances do not accept
    * (full mode with a comment score only).
