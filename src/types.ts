@@ -1,3 +1,9 @@
+import type {
+  HealthItemScores,
+  ModerationTolerances,
+  ResolvedModerationTolerances,
+} from "@respectify/client";
+
 export type ModerateMode = "full" | "spam-only" | "perspective";
 
 export interface RespectifyAstroModerationOptions {
@@ -12,10 +18,21 @@ export interface RespectifyAstroModerationOptions {
 
   /**
    * Toxicity block threshold for auto-decision (0–1). Higher = more toxic.
-   * Used when mode is "full" or "perspective".
-   * @default 0.7
+   *
+   * - perspective mode: the comment is blocked when TOXICITY >= threshold. Defaults to 0.7.
+   * - full mode: the comment score's `exceeds_tolerance` decides. A threshold set here
+   *   (or per call) also applies, as an extra block on `toxicity_score >= threshold`;
+   *   when none is set, only `exceeds_tolerance` decides.
    */
   toxicityThreshold?: number;
+
+  /**
+   * Comment-health tolerances for the comment score (full mode): a level per item, the
+   * nine problem categories and "quality". Items not named are "standard". Floored
+   * categories (threat, identity_attack, sexual_content, harassment) can never be
+   * "permissive", "relaxed" or "off": the integration rejects that at setup.
+   */
+  tolerances?: ModerationTolerances;
 
   /**
    * Optional default page/topic URL used to build article context when
@@ -37,6 +54,11 @@ export interface ModerateCommentInput {
   mode?: ModerateMode;
   /** Override toxicity threshold for this call */
   toxicityThreshold?: number;
+  /**
+   * Override tolerances for this call (full mode). Merged over the integration's
+   * `tolerances`: an item named here wins, the others keep the integration's level.
+   */
+  tolerances?: ModerationTolerances;
 }
 
 export interface ModerateCommentResult {
@@ -46,8 +68,30 @@ export interface ModerateCommentResult {
   feedback: string;
   /** Toxicity-ish score when available (0 = clean, 1 = highly toxic) */
   toxicityScore?: number;
-  /** True when spam was detected */
+  /** True when spam was detected: reject or delete the comment */
   isSpam?: boolean;
+  /**
+   * True when the comment looks like spam but is not certain. It is not approved, but it
+   * is not spam either: send it back to the commenter with `feedback` (which carries
+   * `spamSuggestion`) so a real person can fix it. Undefined in perspective mode.
+   */
+  suspectedSpam?: boolean;
+  /**
+   * The server's suggestion for a suspected-spam comment, such as to remove a link.
+   * Set only when `suspectedSpam` is true.
+   */
+  spamSuggestion?: string;
+  /**
+   * True when the comment has a problem the site's tolerances do not accept
+   * (full mode with a comment score only).
+   */
+  exceedsTolerance?: boolean;
+  /** The tolerances the comment score was judged under (full mode with a comment score only) */
+  tolerances?: ResolvedModerationTolerances;
+  /** Comment health, 1.0-5.0 (full mode, when the API returned it; absent when every item is off) */
+  healthScore?: number;
+  /** Per-item comment-health results: score, minimum, is_acceptable (full mode, when the API returned them) */
+  healthItems?: HealthItemScores;
   /** Article context used (useful to cache for later comments on the same page) */
   articleId?: string;
   /** Perspective attribute scores when mode is "perspective" */

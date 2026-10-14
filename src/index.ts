@@ -7,3 +7,12 @@ export type {
   ModerateMode,
   RespectifyAstroModerationOptions,
 } from "./types.js";
+export type {
+  HealthItem,
+  HealthItemScore,
+  HealthItemScores,
+  ModerationCategory,
+  ModerationTolerances,
+  ResolvedModerationTolerances,
+  ToleranceLevel,
+} from "@respectify/client";

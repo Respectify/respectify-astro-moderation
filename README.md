@@ -26,7 +26,8 @@ export default defineConfig({
   integrations: [
     respectifyModeration({
       mode: "full", // or "spam-only" | "perspective"
-      toxicityThreshold: 0.7,
+      // Optional: comment-health levels; items not named are "standard"
+      tolerances: { insult: "relaxed", profanity: "off", threat: "zero_tolerance", quality: "strict" },
     }),
   ],
 });
@@ -62,6 +63,49 @@ if (!result.approved) {
 | `full` (default) | Spam check + comment score when topic context is available |
 | `spam-only` | Spam detection only |
 | `perspective` | Perspective-compatible toxicity / insult / profanity scores |
+
+### How the decision is made
+
+| Mode | Blocked when |
+| --- | --- |
+| `full` | Spam or suspected spam, **or** the comment score's `exceeds_tolerance` is true, **or** `toxicity_score >= toxicityThreshold` *if you set a threshold* (none by default) |
+| `spam-only` | Spam or suspected spam |
+| `perspective` | `TOXICITY >= toxicityThreshold` (default `0.7`) |
+
+In `full` mode, `exceeds_tolerance` is the main signal: Respectify sets it when any comment-health item scores below what your tolerances accept, or the comment is severely toxic. `toxicity_score` is not adjusted for tolerances, so only set `toxicityThreshold` in `full` mode if you want an extra, tolerance-independent cut-off. Without topic context (`articleId`, `topicUrl`, `topicText` or `defaultTopicUrl`) there is no comment score, so only spam is checked.
+
+### Spam and suspected spam
+
+A comment that is not approved is either rejected as spam or sent back to its writer to revise:
+
+| Result | What to do |
+| --- | --- |
+| `isSpam: true` | Spam: reject or delete it |
+| `suspectedSpam: true` (`isSpam: false`, `approved: false`) | Suspected spam: send it back to the commenter with `feedback`, the server's suggestion (also in `spamSuggestion`, e.g. "This looks like spam. How about removing the link?"), combined with any comment-health feedback. A real person fixes it; a spammer won't bother |
+| `approved: false`, neither flag set | Comment health: send it back with `feedback` |
+| `approved: true` | Publish it |
+
+`suspectedSpam` is `false` when an older API omits it, and undefined in `perspective` mode, which runs no spam check. In `full` mode a suspected comment still gets its comment score, since it is not spam.
+
+```ts
+const result = await moderateComment({ comment: userText, articleId });
+if (result.isSpam) {
+  // delete it
+} else if (!result.approved) {
+  // send it back: show result.feedback to the commenter
+}
+```
+
+`result.exceedsTolerance`, `result.tolerances` (the full set the comment was judged under), `result.healthScore` (1.0-5.0) and `result.healthItems` (per item: `score`, `minimum`, `is_acceptable`) are returned in `full` mode when a comment score was run. `healthScore` and `healthItems` are absent from older APIs, and `healthScore` is absent when every item is off.
+
+### Comment health and tolerances
+
+Comment health has ten items: the nine problem categories and `quality`. The `tolerances` option sets a level per item; items not named are `standard`. Nothing is stored on the API key. A per-call `tolerances` passed to `moderateComment()` is merged over the integration's.
+
+- Items: `threat`, `identity_attack`, `sexual_content`, `harassment`, `insult`, `profanity`, `dismissive_tone`, `logical_fallacy`, `low_effort`, `quality`
+- Levels, loosest to strictest: `off`, `permissive`, `relaxed`, `standard` (default), `strict`, `zero_tolerance`
+- A problem category fails on its worst finding (severity 1 minor, 2 clear, 3 severe, 4 extreme): `permissive` filters only the very worst, failing extreme findings alone; `relaxed` fails severe and extreme findings; `standard` fails clear, severe and extreme ones; `strict` and `zero_tolerance` fail any. `quality` sets the lowest 1-5 quality score accepted: `permissive` and `relaxed` 2, `standard` 3, `strict` 4, `zero_tolerance` 5. `off` leaves the item out of comment health.
+- `threat`, `identity_attack`, `sexual_content` and `harassment` are floored: they can be made stricter but never `permissive`, `relaxed` or `off`. The integration throws at setup if you try, and `moderateComment()` rejects it per call.
 
 ### Tip: cache `articleId`
 

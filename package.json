@@ -1,6 +1,6 @@
 {
   "name": "@respectify/astro-moderation",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Thin Astro integration for Respectify comment moderation — API key in, approve/block + feedback out.",
   "type": "module",
   "license": "MIT",
@@ -47,14 +47,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test \"build-test/test/**/*.test.js\"",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@respectify/client": "^0.5.0",
+    "@respectify/client": "^0.7.0",
     "astro": "^5.0.0 || ^6.0.0"
   },
   "devDependencies": {
-    "@respectify/client": "^0.5.0",
+    "@respectify/client": "^0.7.0",
     "@types/node": "^26.1.1",
     "astro": "^5.16.5",
     "typescript": "^5.9.2"
